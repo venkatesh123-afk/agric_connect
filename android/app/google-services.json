@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "573274239402",
+    "project_id": "venky-434",
+    "storage_bucket": "venky-434.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:573274239402:android:d30884f39f16f752edfbd3",
+        "android_client_info": {
+          "package_name": "com.example.agri_marketplace_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "573274239402-mdteh23tbg26qvvrsdr8admqni9233bc.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCQ8AkfcjUdDb7gJkKbtqYzHhLgNxdV6RI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "573274239402-mdteh23tbg26qvvrsdr8admqni9233bc.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "573274239402-o07q2g0531lsbfi8qfuhhinchaohom02.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.agriMarketplaceApp"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
