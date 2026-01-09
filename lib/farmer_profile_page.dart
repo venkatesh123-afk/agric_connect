@@ -1,5 +1,5 @@
 import 'dart:io';
-
+import 'package:agri_marketplace_app/splash.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -8,6 +8,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
+
 import 'login.dart';
 import 'edit_profilefarmer.dart';
 
@@ -24,104 +25,124 @@ class _FarmerProfilePageState extends State<FarmerProfilePage> {
   String? _profileImageUrl;
 
   XFile? _pickedImage;
-
   final ImagePicker _picker = ImagePicker();
 
   late String userId;
   bool _isLoading = true;
+  bool _loggingOut = false;
 
   @override
   void initState() {
     super.initState();
-    userId = FirebaseAuth.instance.currentUser?.uid ?? "demoFarmer";
+
+    final user = FirebaseAuth.instance.currentUser;
+
+    // 🔐 SAFETY: user must be logged in
+    if (user == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginPage()),
+        );
+      });
+      return;
+    }
+
+    userId = user.uid;
     _loadProfileData();
   }
 
+  // ---------------- LOAD PROFILE ----------------
   Future<void> _loadProfileData() async {
     try {
       final doc = await FirebaseFirestore.instance
           .collection("farmers")
           .doc(userId)
           .get();
+
       if (doc.exists) {
-        final data = doc.data() ?? {};
+        final data = doc.data()!;
         setState(() {
           _name = data["name"] ?? "Farmer";
           _location = data["location"] ?? "Unknown";
           _profileImageUrl = data["profileImage"];
-          _isLoading = false;
         });
-      } else {
-        setState(() => _isLoading = false);
       }
     } catch (e) {
       debugPrint("Error loading farmer profile: $e");
-      setState(() => _isLoading = false);
     }
+
+    if (mounted) setState(() => _isLoading = false);
   }
 
-  /// Pick image & upload to Firebase Storage
+  // ---------------- IMAGE PICK & UPLOAD ----------------
   Future<void> _pickImage() async {
     final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
-      setState(() => _pickedImage = pickedFile);
+    if (pickedFile == null) return;
 
-      try {
-        Reference ref = FirebaseStorage.instance
-            .ref()
-            .child("farmer_profile_images")
-            .child(userId)
-            .child("profile.jpg"); // UID-based path
+    setState(() => _pickedImage = pickedFile);
 
-        UploadTask uploadTask;
-        if (kIsWeb) {
-          final bytes = await pickedFile.readAsBytes();
-          uploadTask = ref.putData(bytes);
-        } else {
-          uploadTask = ref.putFile(File(pickedFile.path));
-        }
+    try {
+      final ref = FirebaseStorage.instance.ref().child(
+        "farmer_profile_images/$userId/profile.jpg",
+      );
 
-        final snapshot = await uploadTask;
-        final downloadUrl = await snapshot.ref.getDownloadURL();
+      UploadTask uploadTask = kIsWeb
+          ? ref.putData(await pickedFile.readAsBytes())
+          : ref.putFile(File(pickedFile.path));
 
-        await FirebaseFirestore.instance.collection("farmers").doc(userId).set({
-          "name": _name,
-          "location": _location,
-          "profileImage": downloadUrl,
-        }, SetOptions(merge: true));
+      final snapshot = await uploadTask;
+      final downloadUrl = await snapshot.ref.getDownloadURL();
 
-        setState(() => _profileImageUrl = downloadUrl);
-      } catch (e) {
-        debugPrint("Image upload failed: $e");
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("Failed to upload image")));
-      }
+      await FirebaseFirestore.instance.collection("farmers").doc(userId).set({
+        "name": _name,
+        "location": _location,
+        "profileImage": downloadUrl,
+      }, SetOptions(merge: true));
+
+      setState(() => _profileImageUrl = downloadUrl);
+    } catch (e) {
+      debugPrint("Image upload failed: $e");
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Failed to upload image")));
     }
   }
 
+  // ---------------- LOGOUT (IMPORTANT) ----------------
+  Future<void> _logout() async {
+    setState(() => _loggingOut = true);
+
+    await FirebaseAuth.instance.signOut();
+
+    if (!mounted) return;
+
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const SplashScreen()),
+      (route) => false,
+    );
+  }
+
+  // ---------------- ACTIONS ----------------
   Future<void> _callUs() async {
+    if (kIsWeb) return;
+
     final Uri phoneUri = Uri(scheme: 'tel', path: '+919876543210');
     if (await canLaunchUrl(phoneUri)) {
       await launchUrl(phoneUri);
-    } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Could not open dialer")));
     }
   }
 
   void _shareApp() {
-    Share.share(
-      "Check out this Agri Marketplace app! Download here: https://play.google.com/store/apps/details?id=com.example.agri_marketplace",
-    );
+    Share.share("Check out this Agri Marketplace app!");
   }
 
   Future<void> _openEditProfile() async {
     final updatedData = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => EditProfilePage(
+        builder: (_) => EditProfilePage(
           name: _name,
           location: _location,
           profileImage: _profileImageUrl,
@@ -139,8 +160,13 @@ class _FarmerProfilePageState extends State<FarmerProfilePage> {
     }
   }
 
+  // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
+    if (_isLoading || _loggingOut) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -151,98 +177,84 @@ class _FarmerProfilePageState extends State<FarmerProfilePage> {
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () {
-            Navigator.pushReplacementNamed(context, '/farmer-dashboard');
-          },
+          onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      GestureDetector(
-                        onTap: _pickImage,
-                        child: CircleAvatar(
-                          radius: 40,
-                          backgroundImage: _pickedImage != null
-                              ? (kIsWeb
-                                    ? Image.network(_pickedImage!.path).image
-                                    : FileImage(File(_pickedImage!.path))
-                                          as ImageProvider)
-                              : (_profileImageUrl != null &&
-                                        _profileImageUrl!.isNotEmpty
-                                    ? NetworkImage(_profileImageUrl!)
-                                    : const AssetImage("assets/profile.jpg")),
-                          child: Align(alignment: Alignment.bottomRight),
-                        ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // -------- PROFILE HEADER --------
+            Row(
+              children: [
+                GestureDetector(
+                  onTap: _pickImage,
+                  child: CircleAvatar(
+                    radius: 40,
+                    backgroundImage: _pickedImage != null
+                        ? (kIsWeb
+                              ? NetworkImage(_pickedImage!.path)
+                              : FileImage(File(_pickedImage!.path)))
+                        : (_profileImageUrl != null &&
+                                  _profileImageUrl!.isNotEmpty
+                              ? NetworkImage(_profileImageUrl!)
+                              : const AssetImage("assets/profile.jpg")
+                                    as ImageProvider),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _name,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
-                      const SizedBox(width: 16),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _name,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Text(
-                            _location,
-                            style: const TextStyle(color: Colors.grey),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 30),
-                  _buildProfileTile(
-                    icon: Icons.edit,
-                    title: "Edit Profile",
-                    onTap: _openEditProfile,
-                  ),
-                  _buildProfileTile(
-                    icon: Icons.privacy_tip,
-                    title: "Privacy Policy",
-                    onTap: () => Navigator.pushNamed(context, "/PrivacyPolicy"),
-                  ),
-                  _buildProfileTile(
-                    icon: Icons.description,
-                    title: "Terms & Conditions",
-                    onTap: () =>
-                        Navigator.pushNamed(context, "/TermsAndConditions"),
-                  ),
-                  _buildProfileTile(
-                    icon: Icons.share,
-                    title: "Share App",
-                    onTap: _shareApp,
-                  ),
-                  _buildProfileTile(
-                    icon: Icons.call,
-                    title: "Call Us",
-                    onTap: _callUs,
-                  ),
-                  _buildProfileTile(
-                    icon: Icons.logout,
-                    title: "Logout",
-                    onTap: () {
-                      FirebaseAuth.instance.signOut();
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const LoginPage(),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
+                    ),
+                    Text(_location, style: const TextStyle(color: Colors.grey)),
+                  ],
+                ),
+              ],
             ),
+
+            const SizedBox(height: 30),
+
+            _buildProfileTile(
+              icon: Icons.edit,
+              title: "Edit Profile",
+              onTap: _openEditProfile,
+            ),
+            _buildProfileTile(
+              icon: Icons.privacy_tip,
+              title: "Privacy Policy",
+              onTap: () => Navigator.pushNamed(context, "/PrivacyPolicy"),
+            ),
+            _buildProfileTile(
+              icon: Icons.description,
+              title: "Terms & Conditions",
+              onTap: () => Navigator.pushNamed(context, "/TermsAndConditions"),
+            ),
+            _buildProfileTile(
+              icon: Icons.share,
+              title: "Share App",
+              onTap: _shareApp,
+            ),
+            _buildProfileTile(
+              icon: Icons.call,
+              title: "Call Us",
+              onTap: _callUs,
+            ),
+            _buildProfileTile(
+              icon: Icons.logout,
+              title: "Logout",
+              onTap: _logout,
+            ),
+          ],
+        ),
+      ),
     );
   }
 

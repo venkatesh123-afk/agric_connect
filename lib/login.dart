@@ -63,7 +63,10 @@ class _LoginPageState extends State<LoginPage> {
 
       // ✅ Save credentials securely for biometric re-login
       await storage.write(key: "email", value: _emailController.text.trim());
-      await storage.write(key: "password", value: _passwordController.text.trim());
+      await storage.write(
+        key: "password",
+        value: _passwordController.text.trim(),
+      );
 
       _goToHome(userCred.user!);
     } on FirebaseAuthException catch (e) {
@@ -75,9 +78,9 @@ class _LoginPageState extends State<LoginPage> {
       } else {
         errorMessage = 'Error: ${e.message}';
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errorMessage)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(errorMessage)));
     } finally {
       setState(() => _isLoading = false);
     }
@@ -98,14 +101,17 @@ class _LoginPageState extends State<LoginPage> {
 
       if (faceOnly && !available.contains(BiometricType.face)) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Face Unlock not available on this device.")),
+          const SnackBar(
+            content: Text("Face Unlock not available on this device."),
+          ),
         );
         return;
-      } 
+      }
 
       final bool didAuthenticate = await auth.authenticate(
-        localizedReason:
-            faceOnly ? "Use Face ID to login" : "Authenticate with Biometrics",
+        localizedReason: faceOnly
+            ? "Use Face ID to login"
+            : "Authenticate with Biometrics",
         options: const AuthenticationOptions(
           biometricOnly: false,
           stickyAuth: true,
@@ -134,19 +140,23 @@ class _LoginPageState extends State<LoginPage> {
             _goToHome(cred.user!);
           } catch (e) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Session expired. Please login manually.")),
+              const SnackBar(
+                content: Text("Session expired. Please login manually."),
+              ),
             );
           }
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("No saved session. Please login manually.")),
+            const SnackBar(
+              content: Text("No saved session. Please login manually."),
+            ),
           );
         }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Biometric auth failed: $e")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Biometric auth failed: $e")));
     }
   }
 
@@ -222,15 +232,15 @@ class _LoginPageState extends State<LoginPage> {
                               height: 2,
                               width: 50,
                               color: Colors.green,
-                            )
+                            ),
                           ],
                         ),
                         const SizedBox(width: 40),
                         GestureDetector(
                           onTap: () {
-                            Navigator.of(context).pushReplacement(
-                              _customPageRoute(const Signup()),
-                            );
+                            Navigator.of(
+                              context,
+                            ).pushReplacement(_customPageRoute(const Signup()));
                           },
                           child: const Text(
                             'Sign up',
@@ -250,8 +260,9 @@ class _LoginPageState extends State<LoginPage> {
                       validator: (value) {
                         if (value == null || value.isEmpty) {
                           return 'Email is required';
-                        } else if (!RegExp(r'^[\w-\.]+@gmail\.com$')
-                            .hasMatch(value)) {
+                        } else if (!RegExp(
+                          r'^[\w-\.]+@gmail\.com$',
+                        ).hasMatch(value)) {
                           return 'Email must end with @gmail.com';
                         } else if (value.length < 10) {
                           return 'Email must be at least 10 characters';
@@ -275,8 +286,9 @@ class _LoginPageState extends State<LoginPage> {
                               : Icons.visibility,
                           color: Colors.grey,
                         ),
-                        onPressed: () =>
-                            setState(() => _obscurePassword = !_obscurePassword),
+                        onPressed: () => setState(
+                          () => _obscurePassword = !_obscurePassword,
+                        ),
                       ),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
@@ -318,7 +330,10 @@ class _LoginPageState extends State<LoginPage> {
                       child: OutlinedButton.icon(
                         onPressed: () =>
                             _authenticateWithBiometrics(faceOnly: false),
-                        icon: const Icon(Icons.fingerprint, color: Colors.green),
+                        icon: const Icon(
+                          Icons.fingerprint,
+                          color: Colors.green,
+                        ),
                         label: const Text("Log in with Biometrics"),
                       ),
                     ),
@@ -370,8 +385,10 @@ class _LoginPageState extends State<LoginPage> {
         suffixIcon: suffix,
         filled: true,
         fillColor: Colors.grey.shade100,
-        contentPadding:
-            const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        contentPadding: const EdgeInsets.symmetric(
+          vertical: 14,
+          horizontal: 16,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,

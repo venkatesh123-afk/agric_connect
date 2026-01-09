@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:agri_marketplace_app/splash.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -27,12 +28,28 @@ class _BuyerProfilePageState extends State<BuyerProfilePage> {
 
   final ImagePicker _picker = ImagePicker();
   late String userId;
+
   bool _isLoading = true;
+  bool _loggingOut = false;
 
   @override
   void initState() {
     super.initState();
-    userId = FirebaseAuth.instance.currentUser?.uid ?? "demoBuyer";
+
+    final user = FirebaseAuth.instance.currentUser;
+
+    // 🔐 SAFETY CHECK
+    if (user == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginPage()),
+        );
+      });
+      return;
+    }
+
+    userId = user.uid;
     _loadProfileData();
   }
 
@@ -42,8 +59,9 @@ class _BuyerProfilePageState extends State<BuyerProfilePage> {
           .collection("buyers")
           .doc(userId)
           .get();
+
       if (doc.exists) {
-        final data = doc.data() ?? {};
+        final data = doc.data()!;
         setState(() {
           _name = data["name"] ?? "Buyer";
           _email = data["email"] ?? "buyer@example.com";
@@ -51,10 +69,14 @@ class _BuyerProfilePageState extends State<BuyerProfilePage> {
           _profileImageUrl = data["profileImage"];
         });
       }
-    } catch (_) {}
-    setState(() => _isLoading = false);
+    } catch (e) {
+      debugPrint("Error loading profile: $e");
+    }
+
+    if (mounted) setState(() => _isLoading = false);
   }
 
+  // ---------------- IMAGE PICK & UPLOAD ----------------
   Future<void> _pickImage() async {
     final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
     if (pickedFile == null) return;
@@ -62,11 +84,9 @@ class _BuyerProfilePageState extends State<BuyerProfilePage> {
     setState(() => _pickedImage = pickedFile);
 
     try {
-      final ref = FirebaseStorage.instance
-          .ref()
-          .child("buyer_profile_images")
-          .child(userId)
-          .child("profile.jpg");
+      final ref = FirebaseStorage.instance.ref().child(
+        "buyer_profile_images/$userId/profile.jpg",
+      );
 
       UploadTask uploadTask = kIsWeb
           ? ref.putData(await pickedFile.readAsBytes())
@@ -83,48 +103,42 @@ class _BuyerProfilePageState extends State<BuyerProfilePage> {
       }, SetOptions(merge: true));
 
       setState(() => _profileImageUrl = downloadUrl);
-    } catch (_) {
+    } catch (e) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text("Failed to upload image")));
     }
   }
 
-  Future<void> _callUs() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Call Support"),
-        content: const Text("Do you want to call our support number?"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text("Cancel"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text("Call"),
-          ),
-        ],
-      ),
-    );
+  // ---------------- LOGOUT (IMPORTANT) ----------------
+  Future<void> _logout() async {
+    setState(() => _loggingOut = true);
 
-    if (confirm != true || kIsWeb) return;
+    await FirebaseAuth.instance.signOut();
+
+    if (!mounted) return;
+
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const SplashScreen()),
+      (route) => false,
+    );
+  }
+
+  // ---------------- ACTIONS ----------------
+  Future<void> _callUs() async {
+    if (kIsWeb) return;
 
     final Uri phoneUri = Uri(scheme: 'tel', path: '8374217410');
     if (await canLaunchUrl(phoneUri)) {
-      launchUrl(phoneUri, mode: LaunchMode.platformDefault);
+      launchUrl(phoneUri);
     }
   }
 
   Future<void> _openWhatsApp() async {
-    final Uri whatsappUri = Uri.parse("https://wa.me/8374217410");
-    if (await canLaunchUrl(whatsappUri)) {
-      await launchUrl(whatsappUri, mode: LaunchMode.externalApplication);
-    } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("WhatsApp not installed")));
+    final Uri uri = Uri.parse("https://wa.me/8374217410");
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
   }
 
@@ -136,7 +150,7 @@ class _BuyerProfilePageState extends State<BuyerProfilePage> {
     final updatedData = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => EditProfilePage(
+        builder: (_) => EditProfilePage(
           name: _name,
           email: _email,
           location: _location,
@@ -145,6 +159,7 @@ class _BuyerProfilePageState extends State<BuyerProfilePage> {
         ),
       ),
     );
+
     if (updatedData != null && mounted) {
       setState(() {
         _name = updatedData["name"];
@@ -155,8 +170,13 @@ class _BuyerProfilePageState extends State<BuyerProfilePage> {
     }
   }
 
+  // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
+    if (_isLoading || _loggingOut) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -167,86 +187,60 @@ class _BuyerProfilePageState extends State<BuyerProfilePage> {
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () =>
-              Navigator.pushReplacementNamed(context, '/buyer-dashboard'),
+          onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ------------------- Profile Header -------------------
-                  Row(
-                    children: [
-                      GestureDetector(
-                        onTap: _pickImage,
-                        child: CircleAvatar(
-                          radius: 40,
-                          backgroundImage: _pickedImage != null
-                              ? (kIsWeb
-                                    ? NetworkImage(_pickedImage!.path)
-                                    : FileImage(File(_pickedImage!.path)))
-                              : (_profileImageUrl != null &&
-                                        _profileImageUrl!.isNotEmpty
-                                    ? NetworkImage(_profileImageUrl!)
-                                    : const AssetImage("assets/profile.jpg")
-                                          as ImageProvider),
-                        ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // -------- PROFILE HEADER --------
+            Row(
+              children: [
+                GestureDetector(
+                  onTap: _pickImage,
+                  child: CircleAvatar(
+                    radius: 40,
+                    backgroundImage: _pickedImage != null
+                        ? (kIsWeb
+                              ? NetworkImage(_pickedImage!.path)
+                              : FileImage(File(_pickedImage!.path)))
+                        : (_profileImageUrl != null &&
+                                  _profileImageUrl!.isNotEmpty
+                              ? NetworkImage(_profileImageUrl!)
+                              : const AssetImage("assets/profile.jpg")
+                                    as ImageProvider),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _name,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
-                      const SizedBox(width: 16),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _name,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          Text(
-                            _email,
-                            style: const TextStyle(color: Colors.grey),
-                          ),
-                          Text(
-                            _location,
-                            style: const TextStyle(color: Colors.grey),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 30),
-
-                  // ------------------- Tiles -------------------
-                  _buildTile(Icons.edit, "Edit Profile", _openEditProfile),
-                  _buildTile(
-                    Icons.privacy_tip,
-                    "Privacy Policy",
-                    () => Navigator.pushNamed(context, "/PrivacyPolicy"),
-                  ),
-                  _buildTile(
-                    Icons.description,
-                    "Terms & Conditions",
-                    () => Navigator.pushNamed(context, "/TermsAndConditions"),
-                  ),
-                  _buildTile(Icons.share, "Share App", _shareApp),
-                  _buildTile(Icons.call, "Call Us", _callUs),
-                  _buildTile(Icons.chat, "Chat on WhatsApp", _openWhatsApp),
-                  _buildTile(Icons.logout, "Logout", () {
-                    FirebaseAuth.instance.signOut();
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(builder: (_) => const LoginPage()),
-                    );
-                  }),
-                ],
-              ),
+                    ),
+                    Text(_email, style: const TextStyle(color: Colors.grey)),
+                    Text(_location, style: const TextStyle(color: Colors.grey)),
+                  ],
+                ),
+              ],
             ),
+
+            const SizedBox(height: 30),
+
+            _buildTile(Icons.edit, "Edit Profile", _openEditProfile),
+            _buildTile(Icons.share, "Share App", _shareApp),
+            _buildTile(Icons.call, "Call Us", _callUs),
+            _buildTile(Icons.chat, "Chat on WhatsApp", _openWhatsApp),
+            _buildTile(Icons.logout, "Logout", _logout),
+          ],
+        ),
+      ),
     );
   }
 
